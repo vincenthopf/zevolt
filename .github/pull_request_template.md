@@ -1,6 +1,6 @@
 # Pull Request Checklist
 
-### Note to first-time contributors: Please open a discussion post in [Discussions](https://github.com/open-webui/open-webui/discussions) and describe your changes before submitting a pull request.
+### Note to first-time contributors: Please open a discussion post in [Discussions](https://github.com/Zevolt-co/open-webui/discussions) and describe your changes before submitting a pull request.
 
 **Before submitting, make sure you've checked the following:**
 
@@ -73,4 +73,4 @@
 
 ### Contributor License Agreement
 
-By submitting this pull request, I confirm that I have read and fully agree to the [Contributor License Agreement (CLA)](https://github.com/open-webui/open-webui/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT), and I am providing my contributions under its terms.
+By submitting this pull request, I confirm that I have read and fully agree to the [Contributor License Agreement (CLA)](https://github.com/Zevolt-co/open-webui/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT), and I am providing my contributions under its terms.
