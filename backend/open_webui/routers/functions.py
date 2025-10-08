@@ -40,11 +40,23 @@ router = APIRouter()
 
 @router.get("/", response_model=list[FunctionResponse])
 async def get_functions(user=Depends(get_verified_user)):
+    """
+    Retrieve the list of available functions.
+    
+    Returns:
+        list[FunctionResponse]: A list of function descriptors for all available functions.
+    """
     return Functions.get_functions()
 
 
 @router.get("/list", response_model=list[FunctionUserResponse])
 async def get_function_list(user=Depends(get_admin_user)):
+    """
+    Retrieve the complete list of functions with user-facing metadata.
+    
+    Returns:
+        list[FunctionUserResponse]: A list of function records including user-visible fields and metadata.
+    """
     return Functions.get_function_list()
 
 

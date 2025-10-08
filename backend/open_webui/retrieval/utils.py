@@ -55,11 +55,25 @@ from langchain_core.retrievers import BaseRetriever
 
 
 def is_youtube_url(url: str) -> bool:
+    """
+    Determines whether a given URL refers to YouTube (domains like youtube.com or youtu.be).
+    
+    Returns:
+        `True` if the URL points to a YouTube resource, `False` otherwise.
+    """
     youtube_regex = r"^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$"
     return re.match(youtube_regex, url) is not None
 
 
 def get_loader(request, url: str):
+    """
+    Selects and returns an appropriate content loader for the given URL.
+    
+    When the URL is a YouTube link, returns a `YoutubeLoader` configured with language and proxy settings from the request app config; otherwise returns a web loader configured with SSL verification and request-rate settings from the request app config.
+    
+    Returns:
+        A `YoutubeLoader` for YouTube URLs, or a configured web loader for non-YouTube URLs.
+    """
     if is_youtube_url(url):
         return YoutubeLoader(
             url,
@@ -75,6 +89,16 @@ def get_loader(request, url: str):
 
 
 def get_content_from_url(request, url: str) -> str:
+    """
+    Load documents from the given URL and return their concatenated text and the original documents.
+    
+    Parameters:
+    	url (str): The URL to fetch and load content from.
+    
+    Returns:
+    	content (str): All documents' `page_content` values concatenated with single spaces.
+    	docs (list): The list of Document objects returned by the loader.
+    """
     loader = get_loader(request, url)
     docs = loader.load()
     content = " ".join([doc.page_content for doc in docs])
@@ -158,6 +182,27 @@ def query_doc_with_hybrid_search(
     r: float,
     hybrid_bm25_weight: float,
 ) -> dict:
+    """
+    Perform a hybrid BM25 plus vector retrieval on a single collection and return reranked documents and their scores.
+    
+    Parameters:
+        collection_name (str): Name of the collection to query.
+        collection_result (GetResult): Pre-fetched collection data containing documents and metadatas.
+        query (str): The text query to retrieve relevant documents for.
+        embedding_function (Callable): Function that computes embeddings for queries or texts.
+        k (int): Number of top results to return after final truncation.
+        reranking_function (Optional[Callable]): Function used to rerank candidate documents; if None, embedding-based scoring is used.
+        k_reranker (int): Number of candidates to produce before final truncation and reranking.
+        r (float): Minimum score threshold; documents with a score below this are filtered out if provided.
+        hybrid_bm25_weight (float): Weight in [0,1] controlling mix between BM25 (value closer to 1) and vector retrieval.
+    
+    Returns:
+        dict: A dictionary with keys "distances", "documents", and "metadatas". Each value is a single-item list containing a list of length up to `k`:
+            - "distances": [[score1, score2, ...]]
+            - "documents": [[page_content1, page_content2, ...]]
+            - "metadatas": [[metadata1, metadata2, ...]]
+        If the collection has no documents, all three lists will be empty lists inside the single-item container (e.g., {"documents": [], "metadatas": [], "distances": []}).
+    """
     try:
         if (
             not collection_result
@@ -521,6 +566,30 @@ def get_sources_from_items(
     full_context=False,
     user: Optional[UserModel] = None,
 ):
+    """
+    Assembles retrieval sources for a set of input items by resolving direct content or performing collection-based searches.
+    
+    Parameters:
+        request: The incoming request/context used for configuration and loaders.
+        items (list[dict]): Items to extract sources from; each item may be of types like "text", "note", "chat", "url", "file", "collection", or contain direct "docs" or collection names.
+        queries (list[str]): Query strings to use when performing collection searches.
+        embedding_function (callable): Function used to compute embeddings for vector-based retrieval.
+        k (int): Number of vector results to return for non-reranked searches.
+        reranking_function (callable|None): Optional reranking function used by hybrid/reranker paths.
+        k_reranker (int): Number of candidates to rerank when reranking is enabled.
+        r (float|None): Score threshold used by reranking compressor to filter results (if applicable).
+        hybrid_bm25_weight (float): Weight to combine BM25 and vector scores in hybrid searches.
+        hybrid_search (bool): Whether to attempt hybrid (BM25 + vector) searches for collections.
+        full_context (bool): If true, attempt to return full in-context documents from files/collections instead of querying collections.
+        user (Optional[UserModel]): The requesting user; used to check access permissions for notes, chats, and knowledge bases.
+    
+    Returns:
+        list[dict]: A list of source entries each containing:
+            - "source": original item metadata,
+            - "document": list of document text chunks,
+            - "metadata": list of metadata objects corresponding to each document,
+            - optionally "distances": list of distance/score values when available.
+    """
     log.debug(
         f"items: {items} {queries} {embedding_function} {reranking_function} {full_context}"
     )

@@ -149,6 +149,28 @@ def get_rf(
     external_reranker_api_key: str = "",
     auto_update: bool = False,
 ):
+    """
+    Create and return a reranking model instance according to configuration.
+    
+    Depending on the provided `reranking_model` and `engine`, this will instantiate one of:
+    - a ColBERT reranker for matching ColBERT model identifiers,
+    - an ExternalReranker when `engine` is "external",
+    - or a Sentence-Transformers CrossEncoder for other model names.
+    If no `reranking_model` is provided, returns None.
+    
+    Parameters:
+        engine (str): Identifier of the reranking engine; use "external" to construct an external reranker.
+        reranking_model (Optional[str]): Model name or path used to load the reranker.
+        external_reranker_url (str): URL of an external reranking service (used when `engine` == "external").
+        external_reranker_api_key (str): API key for the external reranking service.
+        auto_update (bool): If true, allow automatic model path updates when resolving model location.
+    
+    Returns:
+        rf: An instantiated reranking model object (ColBERT, ExternalReranker, or CrossEncoder) or `None` if no model name was provided.
+    
+    Raises:
+        Exception: On failure to load or initialize the chosen reranking model.
+    """
     rf = None
     if reranking_model:
         if any(model in reranking_model for model in ["jinaai/jina-colbert-v2"]):
@@ -421,6 +443,13 @@ async def update_embedding_config(
 
 @router.get("/config")
 async def get_rag_config(request: Request, user=Depends(get_admin_user)):
+    """
+    Return a snapshot of runtime RAG, hybrid search, content-extraction, reranking, chunking, file upload, integration, and web search configuration values.
+    
+    The response is a mapping of configuration keys to their current values exposed by the application state. This endpoint requires an administrative user.
+    Returns:
+        dict: Configuration dictionary containing RAG settings, hybrid search parameters, content extraction and document-loader settings (including DOCLING_* fields), reranking options, chunking parameters, file upload limits, integration toggles, and a nested "web" dictionary with web search and loader settings.
+    """
     return {
         "status": True,
         # RAG settings
@@ -678,6 +707,15 @@ async def update_rag_config(
     request: Request, form_data: ConfigForm, user=Depends(get_admin_user)
 ):
     # RAG settings
+    """
+    Update runtime RAG, content extraction, reranking, chunking, file upload, integration, and web search configuration from the provided ConfigForm and apply required runtime reloads.
+    
+    Parameters:
+        form_data (ConfigForm): Configuration values to update; only non-None fields overwrite existing settings.
+    
+    Returns:
+        dict: A snapshot of the updated configuration including status=True and current values for RAG, hybrid search, content extraction, reranking, chunking, file upload, integration, and web search settings.
+    """
     request.app.state.config.RAG_TEMPLATE = (
         form_data.RAG_TEMPLATE
         if form_data.RAG_TEMPLATE is not None
@@ -1448,6 +1486,25 @@ def process_file(
     form_data: ProcessFileForm,
     user=Depends(get_verified_user),
 ):
+    """
+    Process a stored file: extract or accept text content, persist it to the configured vector database (unless embedding is bypassed), and update file metadata and status.
+    
+    Parameters:
+        request (Request): FastAPI request used to access application config and state.
+        form_data (ProcessFileForm): Incoming form containing file_id, optional content, and optional collection_name.
+        user: Authenticated user (dependency); determines access scope and ownership checks.
+    
+    Returns:
+        dict: {
+            "status": True,
+            "collection_name": Optional[str],  # name of the vector DB collection or None if embedding was bypassed
+            "filename": str,                   # original filename
+            "content": str                     # extracted or provided text content
+        }
+    
+    Raises:
+        HTTPException: 404 if the file is not found or 400 for processing errors (including missing external tools or vector DB failures). 
+    """
     if user.role == "admin":
         file = Files.get_file_by_id(form_data.file_id)
     else:
@@ -1717,6 +1774,23 @@ def process_text(
 def process_web(
     request: Request, form_data: ProcessUrlForm, user=Depends(get_verified_user)
 ):
+    """
+    Process a web URL, extract its textual content and documents, and optionally persist those documents into the vector database.
+    
+    Parameters:
+        request (Request): FastAPI request object providing app state and config.
+        form_data (ProcessUrlForm): Contains `url` and optional `collection_name`. If `collection_name` is not provided, one is derived from the SHA-256 hash of the URL.
+        
+    Returns:
+        dict: A mapping with:
+            - status (bool): Operation success flag.
+            - collection_name (str | None): Name of the collection used to store embeddings, or `None` if embedding/storage was bypassed.
+            - filename (str): The original URL.
+            - file (dict): Contains `data` with `content` (extracted text) and `meta` with `name` and `source` (the URL).
+            
+    Raises:
+        HTTPException: Raises a 400 Bad Request with error details if processing fails.
+    """
     try:
         collection_name = form_data.collection_name
         if not collection_name:
@@ -2030,6 +2104,21 @@ async def process_web_search(
     request: Request, form_data: SearchForm, user=Depends(get_verified_user)
 ):
 
+    """
+    Perform web searches for the queries in form_data, load or construct Document objects from the resulting URLs or snippets, optionally persist those documents to the vector database as a single collection, and return metadata about the search, loaded documents, and saved collection(s).
+    
+    Parameters:
+        form_data (SearchForm): Contains .queries, the list of search queries to execute.
+    
+    Returns:
+        dict: A response object describing the outcome. Possible keys:
+            - status (bool): True on successful processing.
+            - collection_name / collection_names (str | [str]): Name of the created collection when documents were saved (single string or list of strings).
+            - filenames ([str]): List of URLs that were loaded or constructed.
+            - items ([dict]): Original search result items filtered to those that were actually loaded; each item includes at least `link`, `title`, and `snippet` where available.
+            - docs ([{content: str, metadata: dict}]): When web loader is bypassed, a list of constructed document dicts containing `content` and `metadata`. Omitted when loader is used and embeddings are saved.
+            - loaded_count (int): Number of documents loaded by the web loader or constructed from search snippets.
+    """
     urls = []
     result_items = []
 

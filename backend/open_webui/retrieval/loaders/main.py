@@ -251,6 +251,21 @@ class Loader:
         )
 
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
+        """
+        Selects and constructs an appropriate document loader for the given file.
+        
+        Choose a loader based on the configured engine, the file's extension and MIME type,
+        and the Loader instance's keyword configuration. The returned loader is configured
+        to read and extract content from the provided file_path.
+        
+        Parameters:
+            filename (str): Original filename used to infer the file extension.
+            file_content_type (str): MIME type associated with the file, if known.
+            file_path (str): Filesystem path to the file to be loaded.
+        
+        Returns:
+            loader: A loader instance configured to load the specified file.
+        """
         file_ext = filename.split(".")[-1].lower()
 
         if (

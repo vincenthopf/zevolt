@@ -1175,6 +1175,22 @@ app.state.MODELS = {}
 class RedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Check if the request is a GET request
+        """
+        Redirects specific GET requests to the SPA entry with query parameters for YouTube or shared content.
+        
+        Parses GET requests for:
+        - /watch?v=<id>: maps to `youtube=<id>`
+        - shared (PWA share_target): if the shared text contains an https URL, attempts to extract a YouTube video id and maps to `youtube=<id>`; if not a YouTube URL maps to `load-url=<url>`; otherwise maps to `q=<text>`
+        
+        When a redirect is required, returns a RedirectResponse to "/?..." with the composed parameters. For all other requests, delegates to the downstream handler.
+        
+        Parameters:
+            request (Request): The incoming Starlette/FastAPI request.
+            call_next (Callable): Downstream request handler to produce a response.
+        
+        Returns:
+            Response: A RedirectResponse when a redirect is triggered, otherwise the response returned by `call_next`.
+        """
         if request.method == "GET":
             path = request.url.path
             query_params = dict(parse_qs(urlparse(str(request.url)).query))
@@ -1427,6 +1443,27 @@ async def chat_completion(
     form_data: dict,
     user=Depends(get_verified_user),
 ):
+    """
+    Handle a chat completion request: validate model and user access, construct metadata, and run the chat processing flow either synchronously or as a background task.
+    
+    Parameters:
+        request (Request): FastAPI request object with application state used to access models, Redis, and other app services.
+        form_data (dict): Parsed request payload. Expected keys include `model`, optional `model_item`, optional `params`, `chat_id`, `id` (message_id), `session_id`, and other chat-related fields.
+        user: Authenticated user provided by dependency injection.
+    
+    Returns:
+        dict: If the request is scheduled as an asynchronous task, returns {"status": True, "task_id": <task_id>}.
+        Any: Otherwise returns the processed chat response produced by the chat processing pipeline.
+    
+    Raises:
+        HTTPException(status_code=400): If metadata or model validation fails.
+        HTTPException(status_code=404): If a non-local chat_id is provided but the chat is not found for the user.
+    
+    Side effects:
+        - May enqueue a background task in Redis for asynchronous processing.
+        - May update chat message records (unless chat_id starts with "local:").
+        - May emit events (e.g., errors, cancellation) and disconnect MCP clients during cleanup.
+    """
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 
@@ -1522,6 +1559,24 @@ async def chat_completion(
         )
 
     async def process_chat(request, form_data, user, metadata, model):
+        """
+        Process an incoming chat request end-to-end: validate and enrich payload, invoke the chat completion handler, persist/update chat message state, emit related events, and perform cleanup.
+        
+        Parameters:
+            request: The HTTP/ASGI request object associated with this call.
+            form_data: Parsed request payload containing the chat input and parameters.
+            user: The authenticated user object performing the request.
+            metadata: A dict with contextual information (e.g., chat_id, message_id, mcp_clients, event routing) used for persistence and event emission.
+            model: The model identifier or model object to use for the completion.
+        
+        Returns:
+            The result returned by process_chat_response (typically the finalized chat response object or dict).
+        
+        Notes:
+            - On asyncio.CancelledError the function emits a chat:tasks:cancel event and returns without raising.
+            - Errors during processing are caught; the message is updated with an error entry and a chat:message:error event is emitted when chat_id and message_id are present.
+            - Cleanup always attempts to disconnect any MCP clients listed in metadata['mcp_clients'].
+        """
         try:
             form_data, metadata, events = await process_chat_payload(
                 request, form_data, user, metadata, model
@@ -2018,6 +2073,14 @@ async def oauth_login_callback(provider: str, request: Request, response: Respon
 
 @app.get("/manifest.json")
 async def get_manifest_json():
+    """
+    Return the Progressive Web App (PWA) manifest JSON used by the frontend.
+    
+    If EXTERNAL_PWA_MANIFEST_URL is configured in app.state, fetches and returns that JSON; otherwise returns a default manifest constructed from app.state values (name, start_url, display, colors, icons, and a share_target entry).
+    
+    Returns:
+        manifest (dict): A dictionary representing the PWA manifest JSON object.
+    """
     if app.state.EXTERNAL_PWA_MANIFEST_URL:
         return requests.get(app.state.EXTERNAL_PWA_MANIFEST_URL).json()
     else:

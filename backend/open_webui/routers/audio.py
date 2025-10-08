@@ -187,6 +187,44 @@ class AudioConfigUpdateForm(BaseModel):
 
 @router.get("/config")
 async def get_audio_config(request: Request, user=Depends(get_admin_user)):
+    """
+    Return current text-to-speech (TTS) and speech-to-text (STT) configuration snapshot.
+    
+    Provides a dictionary with two top-level keys:
+    - `tts`: current TTS settings such as OpenAI base URL/key, engine, model, voice, splitting option, Azure speech settings, and optional OpenAI parameters.
+    - `stt`: current STT settings such as OpenAI base URL/key, selected engine/model, supported content types, Whisper/deepgram/azure credentials and related Azure settings.
+    
+    Returns:
+        config (dict): {
+            "tts": {
+                "OPENAI_API_BASE_URL": str | None,
+                "OPENAI_API_KEY": str | None,
+                "OPENAI_PARAMS": dict | None,
+                "API_KEY": str | None,
+                "ENGINE": str | None,
+                "MODEL": str | None,
+                "VOICE": str | None,
+                "SPLIT_ON": str | None,
+                "AZURE_SPEECH_REGION": str | None,
+                "AZURE_SPEECH_BASE_URL": str | None,
+                "AZURE_SPEECH_OUTPUT_FORMAT": str | None,
+            },
+            "stt": {
+                "OPENAI_API_BASE_URL": str | None,
+                "OPENAI_API_KEY": str | None,
+                "ENGINE": str | None,
+                "MODEL": str | None,
+                "SUPPORTED_CONTENT_TYPES": list | None,
+                "WHISPER_MODEL": str | None,
+                "DEEPGRAM_API_KEY": str | None,
+                "AZURE_API_KEY": str | None,
+                "AZURE_REGION": str | None,
+                "AZURE_LOCALES": list | None,
+                "AZURE_BASE_URL": str | None,
+                "AZURE_MAX_SPEAKERS": int | None,
+            },
+        }
+    """
     return {
         "tts": {
             "OPENAI_API_BASE_URL": request.app.state.config.TTS_OPENAI_API_BASE_URL,
@@ -222,6 +260,17 @@ async def get_audio_config(request: Request, user=Depends(get_admin_user)):
 async def update_audio_config(
     request: Request, form_data: AudioConfigUpdateForm, user=Depends(get_admin_user)
 ):
+    """
+    Update the application's text-to-speech (TTS) and speech-to-text (STT) configuration from the provided form and return the updated configuration snapshot.
+    
+    Parameters:
+        form_data (AudioConfigUpdateForm): Form payload containing new TTS and STT settings (API bases/keys, engine, model, voice, Azure settings, OPENAI_PARAMS, supported content types, whisper/deepgram settings, etc.).
+    
+    Returns:
+        dict: Snapshot of the currently applied configuration with two top-level keys:
+            - "tts": mapping of TTS-related configuration values (ENGINE, MODEL, VOICE, OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_PARAMS, API_KEY, SPLIT_ON, AZURE_SPEECH_REGION, AZURE_SPEECH_BASE_URL, AZURE_SPEECH_OUTPUT_FORMAT).
+            - "stt": mapping of STT-related configuration values (OPENAI_API_BASE_URL, OPENAI_API_KEY, ENGINE, MODEL, SUPPORTED_CONTENT_TYPES, WHISPER_MODEL, DEEPGRAM_API_KEY, AZURE_API_KEY, AZURE_REGION, AZURE_LOCALES, AZURE_BASE_URL, AZURE_MAX_SPEAKERS).
+    """
     request.app.state.config.TTS_OPENAI_API_BASE_URL = form_data.tts.OPENAI_API_BASE_URL
     request.app.state.config.TTS_OPENAI_API_KEY = form_data.tts.OPENAI_API_KEY
     request.app.state.config.TTS_OPENAI_PARAMS = form_data.tts.OPENAI_PARAMS
@@ -311,6 +360,17 @@ def load_speech_pipeline(request):
 
 @router.post("/speech")
 async def speech(request: Request, user=Depends(get_verified_user)):
+    """
+    Serve an MP3 audio file for the provided text-to-speech request, using the configured TTS backend and a cache.
+    
+    Handles TTS requests against the configured engine (OpenAI, ElevenLabs, Azure, or transformers), stores the generated MP3 and a JSON payload sidecar in the speech cache, and returns a FileResponse pointing to the cached or newly created MP3 file.
+    
+    Returns:
+        FileResponse: A response serving the MP3 file for the requested speech.
+    
+    Raises:
+        HTTPException: For invalid JSON payloads or when an external TTS service returns an error (status and detail are propagated where available).
+    """
     body = await request.body()
     name = hashlib.sha256(
         body

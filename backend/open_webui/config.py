@@ -602,10 +602,26 @@ OAUTH_UPDATE_PICTURE_ON_LOGIN = PersistentConfig(
 
 
 def load_oauth_providers():
+    """
+    Populate the global OAUTH_PROVIDERS registry with OAuth provider entries based on configured environment values.
+    
+    This function clears any existing entries in OAUTH_PROVIDERS and, for each supported provider (Google, Microsoft, GitHub, OIDC, Feishu) that has the required environment credentials configured, adds a registry entry containing metadata such as redirect URIs and a `register` callable that accepts an `OAuth` instance and returns the registered client. It also includes provider-specific metadata (e.g., `picture_url`, `sub_claim`, `name`) when available and logs a warning if one or more providers are configured but OPENID_PROVIDER_URL is not set (which affects logout functionality).
+    """
     OAUTH_PROVIDERS.clear()
     if GOOGLE_CLIENT_ID.value and GOOGLE_CLIENT_SECRET.value:
 
         def google_oauth_register(oauth: OAuth):
+            """
+            Register Google as an OpenID Connect provider with the given OAuth instance and return the registered client.
+            
+            This will create and register a client configured for Google's OpenID Connect discovery, using configured client ID, client secret, scopes, timeout (if set), and redirect URI.
+            
+            Parameters:
+                oauth (OAuth): The OAuth manager used to register the provider.
+            
+            Returns:
+                The registered OAuth client instance for Google.
+            """
             client = oauth.register(
                 name="google",
                 client_id=GOOGLE_CLIENT_ID.value,
@@ -635,6 +651,12 @@ def load_oauth_providers():
     ):
 
         def microsoft_oauth_register(oauth: OAuth):
+            """
+            Register the Microsoft OAuth provider using configured credentials and return the registered client.
+            
+            Returns:
+                The registered OAuth client instance.
+            """
             client = oauth.register(
                 name="microsoft",
                 client_id=MICROSOFT_CLIENT_ID.value,
@@ -661,6 +683,14 @@ def load_oauth_providers():
     if GITHUB_CLIENT_ID.value and GITHUB_CLIENT_SECRET.value:
 
         def github_oauth_register(oauth: OAuth):
+            """
+            Register a GitHub OAuth client on the provided OAuth registry using environment-configured credentials and endpoints.
+            
+            Configures the client with GitHub's standard authorize, access token, API, and userinfo endpoints, the scope from GITHUB_CLIENT_SCOPE, an optional timeout from OAUTH_TIMEOUT, and the redirect URI from GITHUB_CLIENT_REDIRECT_URI.
+            
+            Returns:
+                The registered OAuth client instance for GitHub.
+            """
             client = oauth.register(
                 name="github",
                 client_id=GITHUB_CLIENT_ID.value,
@@ -694,6 +724,17 @@ def load_oauth_providers():
     ):
 
         def oidc_oauth_register(oauth: OAuth):
+            """
+            Register an OpenID Connect (OIDC) OAuth client on the provided OAuth registry using configured provider and client settings.
+            
+            Builds client configuration from the module's OAuth-related settings and registers the client with the given OAuth instance.
+            
+            Returns:
+                The registered OAuth client instance.
+            
+            Raises:
+                Exception: If an unsupported OIDC code challenge method is configured (only "S256" is accepted).
+            """
             client_kwargs = {
                 "scope": OAUTH_SCOPES.value,
                 **(
@@ -738,6 +779,12 @@ def load_oauth_providers():
     if FEISHU_CLIENT_ID.value and FEISHU_CLIENT_SECRET.value:
 
         def feishu_oauth_register(oauth: OAuth):
+            """
+            Register a Feishu OAuth client using configured environment values and return the registered client.
+            
+            Returns:
+                The registered OAuth client instance configured for Feishu.
+            """
             client = oauth.register(
                 name="feishu",
                 client_id=FEISHU_CLIENT_ID.value,

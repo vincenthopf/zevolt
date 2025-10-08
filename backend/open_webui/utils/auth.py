@@ -155,12 +155,25 @@ bearer_security = HTTPBearer(auto_error=False)
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt"""
+    """
+    Produce a bcrypt hash for a plaintext password.
+    
+    Parameters:
+        password (str): The plaintext password to hash.
+    
+    Returns:
+        str: The bcrypt hashed password including a generated salt.
+    """
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
+    """
+    Verify that a plaintext password matches a bcrypt hash.
+    
+    Returns:
+        True if `plain_password` matches `hashed_password`, False if it does not, None if `hashed_password` is falsy.
+    """
     return (
         bcrypt.checkpw(
             plain_password.encode("utf-8"),
@@ -172,6 +185,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> str:
+    """
+    Create a JSON Web Token (JWT) from the provided payload, optionally adding an expiration claim.
+    
+    Parameters:
+        data (dict): Payload claims to include in the token.
+        expires_delta (timedelta | None): Time span from now after which the token should expire; if provided, an `exp` claim is added.
+    
+    Returns:
+        str: The encoded JWT as a string.
+    """
     payload = data.copy()
 
     if expires_delta:

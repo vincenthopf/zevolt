@@ -70,6 +70,15 @@ def validate_url(url: Union[str, Sequence[str]]):
 
 
 def safe_validate_urls(url: Sequence[str]) -> Sequence[str]:
+    """
+    Filter the input sequence and return only URLs that pass validation.
+    
+    Parameters:
+        url (Sequence[str]): Sequence of URL strings to validate.
+    
+    Returns:
+        Sequence[str]: A sequence containing only the input URLs that were validated successfully.
+    """
     valid_urls = []
     for u in url:
         try:

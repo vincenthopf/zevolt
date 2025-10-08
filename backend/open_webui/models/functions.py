@@ -190,6 +190,16 @@ class FunctionsTable:
     def get_functions(
         self, active_only=False, include_valves=False
     ) -> list[FunctionModel | FunctionWithValvesModel]:
+        """
+        Retrieve functions from the database, optionally filtering to active ones and returning models that include valve data.
+        
+        Parameters:
+        	active_only (bool): If True, return only functions with `is_active` set to True.
+        	include_valves (bool): If True, return `FunctionWithValvesModel` instances that include the `valves` field; otherwise return `FunctionModel` instances.
+        
+        Returns:
+        	list[FunctionWithValvesModel | FunctionModel]: A list of validated function models. If `include_valves` is True each item is a `FunctionWithValvesModel`; otherwise each item is a `FunctionModel`.
+        """
         with get_db() as db:
             if active_only:
                 functions = db.query(Function).filter_by(is_active=True).all()
@@ -208,6 +218,12 @@ class FunctionsTable:
                 ]
 
     def get_function_list(self) -> list[FunctionUserResponse]:
+        """
+        Retrieve all functions ordered by most recent update and include associated user data.
+        
+        Returns:
+            list[FunctionUserResponse]: List of functions ordered by updated_at descending; each item contains function data and a `user` field set to the corresponding user object or `None` if the user is not found.
+        """
         with get_db() as db:
             functions = db.query(Function).order_by(Function.updated_at.desc()).all()
             user_ids = list(set(func.user_id for func in functions))
@@ -232,6 +248,16 @@ class FunctionsTable:
     def get_functions_by_type(
         self, type: str, active_only=False
     ) -> list[FunctionModel]:
+        """
+        Retrieve functions matching the given type.
+        
+        Parameters:
+            type (str): The function type to filter by.
+            active_only (bool): If True, return only functions where `is_active` is True.
+        
+        Returns:
+            list[FunctionModel]: List of functions with the requested type (filtered to active functions when `active_only` is True).
+        """
         with get_db() as db:
             if active_only:
                 return [

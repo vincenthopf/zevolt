@@ -69,6 +69,21 @@ async def generate_direct_chat_completion(
     user: Any,
     models: dict,
 ):
+    """
+    Handle a direct chat completion for a specific user-session-channel and return either a streaming SSE response or a completed result.
+    
+    This function extracts metadata (expects "user_id" and "session_id") from form_data, constructs a unique channel, and dispatches a chat completion request to the backend via the event caller. If form_data["stream"] is truthy, it registers a socket listener that forwards messages into a queue and returns a Server-Sent Events (text/event-stream) StreamingResponse that yields SSE-formatted chunks until a dict with {"done": True} is received. If not streaming, it waits for the backend response and returns the resulting payload.
+    
+    Parameters:
+        form_data (dict): Request payload for the chat completion. Must include "model" to select the target model and may include "stream" (truthy to enable streaming). May include "metadata" (a dict with "user_id" and "session_id") — metadata is popped from this dict by the function.
+        models (dict): Mapping of model IDs to model configuration objects; used to resolve models[form_data["model"]].
+    
+    Returns:
+        StreamingResponse or dict: A StreamingResponse with SSE-formatted events when streaming is enabled, or the backend response dictionary for non-streaming requests.
+    
+    Raises:
+        Exception: If the backend returns an error or a failed status when initiating the completion.
+    """
     log.info("generate_direct_chat_completion")
 
     metadata = form_data.pop("metadata", {})
@@ -112,6 +127,14 @@ async def generate_direct_chat_completion(
         if res.get("status", False):
             # Define a generator to stream responses
             async def event_generator():
+                """
+                Produce Server-Sent Events (SSE) formatted messages from items pulled from an asyncio.Queue until a dict with {"done": True} is received.
+                
+                Continuously reads from the enclosing coroutine's queue `q`. For dict items, yields a line with `data: ` followed by the JSON-encoded dict and a terminating blank line. For string items, yields the string followed by a blank line, preserving an existing `data:` prefix if present; otherwise the string is prefixed with `data: `. Stops iteration when a dict containing `"done": True` is encountered. Exceptions raised during iteration are caught and suppressed (logged at debug level).
+                 
+                Returns:
+                    An asynchronous iterator that yields SSE-formatted text chunks (each a str) suitable for a text/event-stream response.
+                """
                 nonlocal q
                 try:
                     while True:

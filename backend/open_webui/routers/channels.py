@@ -247,6 +247,20 @@ async def send_notification(name, webui_url, channel, message, active_user_ids):
 
 
 async def model_response_handler(request, channel, message, user):
+    """
+    Detects model mentions in a message and, when models are referenced or the message replies to a model, generates and posts model-driven reply messages.
+    
+    This function identifies model mentions or replies-to-models in the provided message, prepares a contextual prompt (including thread history and any attached images), requests a generated response from the configured model, and updates a placeholder reply message with the model's output (or an error note). Exceptions during processing are logged and suppressed.
+    
+    Parameters:
+        request: The incoming HTTP/WebSocket request or request context used for downstream API calls.
+        channel: The channel object where the message was posted.
+        message: The message object that may reference or reply to a model.
+        user: The user object who triggered the message; used as the author/context for model interactions.
+    
+    Returns:
+        bool: `True` if model processing was attempted (even if errors occurred), `False` if no model mentions or replies-to-models were found.
+    """
     MODELS = {
         model["id"]: model
         for model in get_filtered_models(await get_all_models(request, user=user), user)
@@ -423,6 +437,23 @@ async def model_response_handler(request, channel, message, user):
 async def new_message_handler(
     request: Request, id: str, form_data: MessageForm, user=Depends(get_verified_user)
 ):
+    """
+    Create a new message in the specified channel and broadcast it to the channel's WebSocket room.
+    
+    Parameters:
+        request (Request): The incoming HTTP request (provided by FastAPI).
+        id (str): The ID of the channel to post the message to.
+        form_data (MessageForm): The message payload to insert.
+        user: The authenticated user posting the message.
+    
+    Returns:
+        tuple: A pair (message, channel) where `message` is the created message record and `channel` is the channel record.
+    
+    Raises:
+        HTTPException: With status 404 if the channel does not exist.
+        HTTPException: With status 403 if the user lacks write access to the channel.
+        HTTPException: With status 400 if message creation fails or an internal error occurs.
+    """
     channel = Channels.get_channel_by_id(id)
     if not channel:
         raise HTTPException(
@@ -628,6 +659,22 @@ async def get_channel_thread_messages(
 async def update_message_by_id(
     id: str, message_id: str, form_data: MessageForm, user=Depends(get_verified_user)
 ):
+    """
+    Update a message in the specified channel and broadcast a "message:update" event to the channel room.
+    
+    Parameters:
+        id (str): ID of the channel containing the message.
+        message_id (str): ID of the message to update.
+        form_data (MessageForm): Fields to apply to the message.
+    
+    Returns:
+        MessageModel: The updated message.
+    
+    Raises:
+        HTTPException: 404 if the channel or message does not exist.
+        HTTPException: 400 if the message does not belong to the specified channel or the update fails.
+        HTTPException: 403 if the user is neither an admin nor the message author and lacks read access to the channel.
+    """
     channel = Channels.get_channel_by_id(id)
     if not channel:
         raise HTTPException(
@@ -695,6 +742,22 @@ class ReactionForm(BaseModel):
 async def add_reaction_to_message(
     id: str, message_id: str, form_data: ReactionForm, user=Depends(get_verified_user)
 ):
+    """
+    Add a reaction to a message in a channel and emit a channel event to notify connected clients.
+    
+    Parameters:
+        id (str): Channel ID where the message resides.
+        message_id (str): ID of the message to react to.
+        form_data (ReactionForm): Reaction payload; `name` is the reaction identifier.
+    
+    Returns:
+        bool: `True` on successful addition of the reaction.
+    
+    Raises:
+        HTTPException: 404 if the channel or message is not found.
+        HTTPException: 403 if the user lacks write access to the channel.
+        HTTPException: 400 if the message does not belong to the channel or if adding the reaction fails.
+    """
     channel = Channels.get_channel_by_id(id)
     if not channel:
         raise HTTPException(
@@ -758,6 +821,23 @@ async def add_reaction_to_message(
 async def remove_reaction_by_id_and_user_id_and_name(
     id: str, message_id: str, form_data: ReactionForm, user=Depends(get_verified_user)
 ):
+    """
+    Remove a user's reaction by name from a message in the specified channel.
+    
+    Parameters:
+        id (str): Channel ID containing the message.
+        message_id (str): ID of the message to remove the reaction from.
+        form_data (ReactionForm): Form containing the reaction `name`.
+        user: Authenticated user (injected dependency).
+    
+    Returns:
+        `true` if the reaction was removed, `false` otherwise.
+    
+    Raises:
+        HTTPException: 404 if the channel or message is not found.
+        HTTPException: 403 if the user lacks write access to the channel.
+        HTTPException: 400 if the removal fails for any other reason.
+    """
     channel = Channels.get_channel_by_id(id)
     if not channel:
         raise HTTPException(
@@ -824,6 +904,21 @@ async def remove_reaction_by_id_and_user_id_and_name(
 async def delete_message_by_id(
     id: str, message_id: str, user=Depends(get_verified_user)
 ):
+    """
+    Delete a message from a channel and broadcast the deletion (and parent update) to connected clients.
+    
+    Parameters:
+        id (str): ID of the channel containing the message.
+        message_id (str): ID of the message to delete.
+    
+    Returns:
+        bool: `True` if the message was deleted and notifications were emitted.
+    
+    Raises:
+        HTTPException: 404 if the channel or message does not exist.
+        HTTPException: 400 if the message does not belong to the specified channel or if deletion fails.
+        HTTPException: 403 if the user lacks permission to delete the message.
+    """
     channel = Channels.get_channel_by_id(id)
     if not channel:
         raise HTTPException(

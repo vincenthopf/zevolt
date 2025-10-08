@@ -694,6 +694,20 @@ async def execute_tool_server(
     params: Dict[str, Any],
     server_data: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """
+    Call an OpenAPI operation on a remote tool server using its operationId.
+    
+    Parameters:
+        url (str): Base URL of the tool server.
+        headers (Dict[str, str]): HTTP headers to send with the request.
+        cookies (Dict[str, str]): Cookies to send with the request.
+        name (str): The operationId of the OpenAPI operation to invoke.
+        params (Dict[str, Any]): Parameters to apply to path, query, or request body.
+        server_data (Dict[str, Any]): Parsed server specification containing an OpenAPI document under the "openapi" key.
+    
+    Returns:
+        Tuple[Dict[str, Any], Optional[Dict[str, Any]]]: A tuple where the first element is the parsed response (JSON or text) or an error dict on failure, and the second element is the response headers if the request succeeded, or None on error.
+    """
     error = None
     try:
         openapi = server_data.get("openapi", {})

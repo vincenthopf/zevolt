@@ -121,6 +121,17 @@ def pop_system_message(messages: list[dict]) -> tuple[Optional[dict], list[dict]
 
 
 def update_message_content(message: dict, content: str, append: bool = True) -> dict:
+    """
+    Update a message's content by appending or prepending the given text.
+    
+    Parameters:
+        message (dict): Message object whose "content" is either a string or a list of content items. If a list, items are expected to be dicts with a "type" key (e.g., "text") and a "text" key containing the text to update.
+        content (str): Text to add to the message content.
+        append (bool): If True, add `content` after existing text; if False, add it before existing text.
+    
+    Returns:
+        dict: The same message dictionary with its content updated in-place.
+    """
     if isinstance(message["content"], list):
         for item in message["content"]:
             if item["type"] == "text":
@@ -137,6 +148,16 @@ def update_message_content(message: dict, content: str, append: bool = True) -> 
 
 
 def replace_system_message_content(content: str, messages: list[dict]) -> dict:
+    """
+    Replace the content of the first message with role "system" in the provided messages list.
+    
+    Parameters:
+    	content (str): New content to set on the first system message.
+    	messages (list[dict]): List of message objects; each message is expected to contain at least a "role" and "content" key. The first system message found will be modified in place.
+    
+    Returns:
+    	messages (list[dict]): The same messages list with the first system message's content updated (if any).
+    """
     for message in messages:
         if message["role"] == "system":
             message["content"] = content
@@ -148,12 +169,15 @@ def add_or_update_system_message(
     content: str, messages: list[dict], append: bool = False
 ):
     """
-    Adds a new system message at the beginning of the messages list
-    or updates the existing system message at the beginning.
-
-    :param msg: The message to be added or appended.
-    :param messages: The list of message dictionaries.
-    :return: The updated list of message dictionaries.
+    Insert or update the first system message in the provided messages list.
+    
+    Parameters:
+        content (str): Text to set on the system message.
+        messages (list[dict]): List of message dictionaries; the first message with role "system" will be updated, or a new system message will be inserted at the beginning.
+        append (bool): If True, append `content` to the existing system message content; if False, prepend `content` (default: False).
+    
+    Returns:
+        list[dict]: The updated messages list (the same list object may be modified and returned).
     """
 
     if messages and messages[0].get("role") == "system":
@@ -503,14 +527,26 @@ def freeze(value):
 
 def throttle(interval: float = 10.0):
     """
-    Decorator to prevent a function from being called more than once within a specified duration.
-    If the function is called again within the duration, it returns None. To avoid returning
-    different types, the return type of the function should be Optional[T].
-
-    :param interval: Duration in seconds to wait before allowing the function to be called again.
+    Create a decorator that rate-limits calls to a function per unique (args, kwargs) call key.
+    
+    If the same call (identical positional and keyword arguments) is attempted again within the specified interval in seconds, the decorated function call returns `None`. Different argument combinations are tracked independently. If `interval` is `None`, throttling is disabled and calls are forwarded directly.
+    
+    Parameters:
+        interval (float | None): Number of seconds required between allowed calls for the same arguments. Use `None` to disable throttling.
+    
+    Returns:
+        A decorator that wraps a function to enforce per-argument throttling as described.
     """
 
     def decorator(func):
+        """
+        Wrap a function so calls are rate-limited per unique (args, kwargs) key.
+        
+        If the decorated function is invoked again with the same arguments before the configured interval has elapsed, the call returns `None` instead of invoking the function. If `interval` is None, calls are not rate-limited. The decorator is thread-safe.
+        
+        Returns:
+            wrapper (callable): A function with the same signature as the original that enforces per-argument throttling and returns the original function's result or `None` when throttled.
+        """
         last_calls = {}
         lock = threading.Lock()
 
@@ -535,6 +571,12 @@ def throttle(interval: float = 10.0):
 
 def extract_urls(text: str) -> list[str]:
     # Regex pattern to match URLs
+    """
+    Extracts all HTTP and HTTPS URLs from the given text.
+    
+    Returns:
+        list[str]: A list of URL strings matched in the input text in their original order; empty if no URLs are found.
+    """
     url_pattern = re.compile(
         r"(https?://[^\s]+)", re.IGNORECASE
     )  # Matches http and https URLs

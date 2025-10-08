@@ -139,7 +139,14 @@ async def list_task_ids_by_item_id(redis, id):
 
 async def stop_task(redis, task_id: str):
     """
-    Cancel a running task and remove it from the global task list.
+    Stop a background task identified by task_id by sending a distributed stop command via Redis or by cancelling a local asyncio Task.
+    
+    If a Redis client is provided, a stop command is published to the configured pub/sub channel so any instance owning the task can stop it. If no Redis client is provided, the function attempts to cancel a locally tracked task and observe its final state.
+    
+    Returns:
+        dict: A result mapping with keys:
+            - `status` (bool): `True` when a stop signal was sent or the task was successfully stopped; `False` when the specified local task was not found.
+            - `message` (str): A human-readable description of the outcome.
     """
     if redis:
         # PUBSUB: All instances check if they have this task, and stop if so.
@@ -172,7 +179,14 @@ async def stop_task(redis, task_id: str):
 
 async def stop_item_tasks(redis: Redis, item_id: str):
     """
-    Stop all tasks associated with a specific item ID.
+    Stop all tasks associated with the given item identifier.
+    
+    Attempts to stop each task linked to the item and stops processing on the first task that reports failure.
+    
+    Returns:
+        result (dict): A dictionary with:
+            - `status` (bool): `True` if no tasks were found or all tasks were stopped, `False` if a task stop operation failed.
+            - `message` (str): Human-readable summary of the outcome.
     """
     task_ids = await list_task_ids_by_item_id(redis, item_id)
     if not task_ids:

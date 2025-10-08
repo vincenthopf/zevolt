@@ -178,6 +178,17 @@ class FilesTable:
             ]
 
     def get_file_metadatas_by_ids(self, ids: list[str]) -> list[FileMetadataResponse]:
+        """
+        Retrieve metadata for files with the given ids.
+        
+        Only files whose id is in `ids` are returned. Results are ordered by `updated_at` descending.
+        
+        Parameters:
+            ids (list[str]): File IDs to fetch metadata for.
+        
+        Returns:
+            list[FileMetadataResponse]: Metadata objects containing `id`, `meta`, `created_at`, and `updated_at` for each matching file, ordered by most recently updated first.
+        """
         with get_db() as db:
             return [
                 FileMetadataResponse(

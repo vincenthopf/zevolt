@@ -17,6 +17,21 @@ def apply_system_prompt_to_body(
     user=None,
     replace: bool = False,
 ) -> dict:
+    """
+    Insert or replace a system prompt into the given form_data's messages.
+    
+    If metadata contains a "variables" mapping, those variables are applied to the system prompt before templating with the optional user value. When replace is True, existing system message content is replaced; otherwise a system message is added or updated. The function mutates and returns the provided form_data dictionary.
+    
+    Parameters:
+        system (Optional[str]): The system prompt text to apply; if falsy, form_data is returned unchanged.
+        form_data (dict): The payload to modify; messages are written to form_data["messages"].
+        metadata (Optional[dict]): Optional metadata that may include a "variables" dict to interpolate into the system prompt.
+        user: Optional user value used for legacy prompt templating.
+        replace (bool): If True, replace existing system message content; if False, add or update a system message.
+    
+    Returns:
+        dict: The modified form_data with the system prompt applied to its messages.
+    """
     if not system:
         return form_data
 

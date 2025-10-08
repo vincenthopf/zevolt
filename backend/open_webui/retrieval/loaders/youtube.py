@@ -76,7 +76,18 @@ class YoutubeLoader:
             self.language.append("en")
 
     def load(self) -> List[Document]:
-        """Load YouTube transcripts into `Document` objects."""
+        """
+        Retrieve the video's transcript in the configured language priority and produce Document objects containing the transcript text and loader metadata.
+        
+        Attempts to import and use youtube_transcript_api (raises ImportError with install guidance if unavailable). If a proxy URL was configured, the API is initialized with that proxy. The method queries available transcripts, tries each preferred language in order, prefers a manually created transcript over a generated one when available, concatenates transcript pieces into a single text string, and returns it as a single-element list containing a Document with loader metadata. If an unexpected error occurs while listing transcripts, an empty list is returned. If no transcript is available for any of the requested languages, a NoTranscriptFound exception is raised.
+        
+        Returns:
+            List[Document]: A list containing one Document whose page_content is the concatenated transcript text and whose metadata is the loader's metadata.
+        
+        Raises:
+            ImportError: If the youtube_transcript_api package is not installed.
+            youtube_transcript_api._errors.NoTranscriptFound: If no transcript is found for any of the requested languages.
+        """
         try:
             from youtube_transcript_api import (
                 NoTranscriptFound,
@@ -159,7 +170,12 @@ class YoutubeLoader:
         raise NoTranscriptFound(self.video_id, self.language, list(transcript_list))
 
     async def aload(self) -> Generator[Document, None, None]:
-        """Asynchronously load YouTube transcripts into `Document` objects."""
+        """
+        Asynchronously load YouTube transcripts and return them as Document objects.
+        
+        Returns:
+            list[Document]: Documents containing the transcript text and associated metadata.
+        """
         import asyncio
 
         loop = asyncio.get_event_loop()

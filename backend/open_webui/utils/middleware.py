@@ -148,6 +148,26 @@ def process_tool_result(
     metadata=None,
     user=None,
 ):
+    """
+    Normalize and package a tool's result into a presentation-ready payload.
+    
+    Processes various tool result shapes (HTTP/HTML responses, external tool tuples with headers, MCP/openAPI lists, and dicts) and returns a normalized textual result, any extracted file descriptors, and any embedded UI/content strings.
+    
+    Parameters:
+        request: The incoming request object used for constructing file URLs.
+        tool_function_name (str): The name of the invoked tool (used in status messages).
+        tool_result: The raw result returned by the tool; may be an HTMLResponse, tuple/list with headers, list/dict, or primitive.
+        tool_type (str): The tool category, e.g. "external", "mcp", or other OpenAPI-like types that affect processing rules.
+        direct_tool (bool): When True, treat list-style tool results as direct tool outputs (affects tuple/list unpacking).
+        metadata (dict|None): Optional metadata (e.g., chat_id, message_id, session_id) passed to helpers when materializing files.
+        user: Optional user context used when materializing file URLs.
+    
+    Returns:
+        tuple: (tool_result, tool_result_files, tool_result_embeds)
+            - tool_result (str): A normalized string representation of the tool output (plain text or JSON-serialized dict/list).
+            - tool_result_files (list): List of file descriptors produced from the result (each with at least type and url/content).
+            - tool_result_embeds (list): List of embedded UI/content strings or URLs intended for inline display.
+    """
     tool_result_embeds = []
 
     if isinstance(tool_result, HTMLResponse):
@@ -285,6 +305,24 @@ def process_tool_result(
 async def chat_completion_tools_handler(
     request: Request, body: dict, extra_params: dict, user: UserModel, models, tools
 ) -> tuple[dict, dict]:
+    """
+    Handle a function-calling workflow by invoking tools suggested by a task model and integrating their results into the chat payload.
+    
+    Processes a model-generated function-calling response, executes each referenced tool (local callable or remote/direct), normalizes tool outputs into chat messages, emits optional file/embed events, and accumulates citation sources for downstream retrieval. The handler may modify body["messages"] by appending tool outputs and may remove body["metadata"]["files"] when a tool indicates file handling should replace normal file processing.
+    
+    Parameters:
+        request (Request): Incoming HTTP request and application state access.
+        body (dict): Chat request payload; updated in-place with tool outputs appended to "messages" and may have "metadata" modified.
+        extra_params (dict): Runtime helpers and context; expected keys include "__event_call__" (callable to execute direct tools), "__event_emitter__" (callable to emit events), and "__metadata__" (session/context metadata).
+        user (UserModel): The current user invoking the tools.
+        models: Model registry/context used to resolve the task-model identifier for function calling.
+        tools (Mapping[str, dict]): Available tool descriptors keyed by tool name; each descriptor may include "callable", "direct", "server", "spec", "tool_id", and metadata flags.
+    
+    Returns:
+        tuple:
+            - dict: The (possibly mutated) chat request body to continue processing.
+            - dict: A dictionary with a "sources" list containing collected citation entries derived from executed tool results.
+    """
     async def get_content_from_response(response) -> Optional[str]:
         content = None
         if hasattr(response, "body_iterator"):
@@ -300,6 +338,21 @@ async def chat_completion_tools_handler(
         return content
 
     def get_tools_function_calling_payload(messages, task_model_id, content):
+        """
+        Builds a payload for a task model to perform function-calling using recent chat history and the latest user query.
+        
+        Parameters:
+            messages (list[dict]): Conversation messages (each dict should include at least 'role' and content accessible via get_content_from_message).
+            task_model_id (str): Identifier of the task-specialized model to invoke.
+            content (str): System-level prompt/content to include as the first message.
+        
+        Returns:
+            dict: A request payload containing:
+                - model: the task model id,
+                - messages: a list with a system message (content) and a user message combining recent chat history and the latest query,
+                - stream: False,
+                - metadata: dict with the task type set to function calling.
+        """
         user_message = get_last_user_message(messages)
 
         recent_messages = messages[-4:] if len(messages) > 4 else messages
@@ -822,6 +875,24 @@ async def chat_image_generation_handler(
 async def chat_completion_files_handler(
     request: Request, body: dict, extra_params: dict, user: UserModel
 ) -> tuple[dict, dict[str, list]]:
+    """
+    Generate retrieval queries (when needed), fetch relevant file-based sources, and attach source metadata for use in the chat context.
+    
+    The function:
+    - If file items are present in body["metadata"]["files"], determines whether files should be treated in "full context" mode.
+    - When not full context, calls the retrieval query generator to produce queries; falls back to the last user message if no queries are produced.
+    - Retrieves sources for the files using embedding and optional reranking (offloaded to a thread pool) and emits progress status events via the event emitter.
+    - Returns the original body unchanged and a dictionary with the retrieved "sources" list.
+    
+    Parameters:
+        request: The incoming Request object (used for config, embedding/reranking functions, and app state).
+        body: The chat payload containing messages, model, and optional metadata.files to retrieve from.
+        extra_params: Execution helpers; must contain "__event_emitter__" used to emit status events.
+        user: The current user model used for embedding/reranking calls.
+    
+    Returns:
+        tuple: (body, {"sources": sources}) where "sources" is a list of retrieval result objects (may be empty).
+    """
     __event_emitter__ = extra_params["__event_emitter__"]
     sources = []
 
@@ -1002,6 +1073,24 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # -> Chat Code Interpreter (Form Data Update) -> (Default) Chat Tools Function Calling
     # -> Chat Files
 
+    """
+    Process and enrich a chat request payload through preprocessing, feature handlers, tool resolution, and retrieval so it is ready for model completion.
+    
+    This function applies model and user system prompts, merges folder- and model-provided knowledge files, runs inlet and inlet-filter pipelines, optionally augments the payload with memory, web search, image-generation, and code-interpreter context, resolves and prepares server- and client-side tools (including MCP clients), invokes tool-calling and file-retrieval handlers, and inserts retrieved context and citation metadata into the messages. It returns the possibly modified form_data plus updated metadata and a list of events to emit.
+    
+    Parameters:
+        request: The incoming HTTP request object (used for app state, cookies, and event emission).
+        form_data (dict): The chat payload including messages, params, files, and other client-provided fields.
+        user: The authenticated user object initiating the request.
+        metadata (dict): Request-scoped metadata (e.g., chat_id, tool_ids, filter_ids) that will be updated with tool/file information.
+        model (dict): The selected model descriptor and configuration used to tailor processing (including knowledge sources and task model selection).
+    
+    Returns:
+        tuple:
+            form_data (dict): The transformed chat payload with applied prompts, injected context, tools, and files.
+            metadata (dict): Updated metadata including resolved tool_ids, files, MCP clients, and other processing details.
+            events (list): A list of additional event payloads (e.g., source lists or status updates) to be emitted to the client.
+    """
     form_data = apply_params_to_form_data(form_data, model)
     log.debug(f"form_data: {form_data}")
 
@@ -1287,6 +1376,16 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     for tool_spec in tool_specs:
 
                         def make_tool_function(client, function_name):
+                            """
+                            Create a callable wrapper that invokes a named tool on the provided client.
+                            
+                            Parameters:
+                            	client: An object exposing a `call_tool(function_name, function_args=...)` coroutine used to execute tools.
+                            	function_name (str): The name of the tool/function to call on the client.
+                            
+                            Returns:
+                            	tool_function (callable): An async callable that accepts keyword arguments, forwards them as `function_args` to the client's tool invocation, and returns the client's result.
+                            """
                             async def tool_function(**kwargs):
                                 return await client.call_tool(
                                     function_name,
@@ -1438,6 +1537,24 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
+    """
+    Process a chat response (streaming or non-streaming), emit realtime events, persist assistant messages and metadata, and run post-response background tasks.
+    
+    This function normalizes and forwards the model response to connected clients: for non-streaming responses it emits a final completion event, updates stored message and chat metadata (title, tags, follow-ups), and triggers background work (webhooks, follow-up/title/tag generation). For streaming responses it incrementally processes stream deltas, assembles structured content blocks (text, reasoning, tool calls, code interpreter blocks), emits intermediate completion events, handles tool execution and code-interpreter runs when present, persists interim or final content as configured, and runs the same post-response background tasks when the stream completes. It also applies configured stream filters and may retrieve OAuth tokens and other extra parameters from metadata.
+    
+    Parameters:
+        request: The HTTP request context (used for event emitters, config, and OAuth).
+        response: The model provider response; may be a StreamingResponse or a regular response object.
+        form_data: The original chat payload sent to the model (messages, model id, tools, etc.).
+        user: The authenticated user initiating the chat.
+        metadata: Operation metadata (expected keys include chat_id, message_id, session_id, params, features, tools, and filter_ids).
+        model: Resolved model information used for processing/filter resolution.
+        events: Optional list of initial events to emit into the stream or include in the final response.
+        tasks: Optional task configuration indicating post-response jobs (e.g., follow-ups, title generation, tag generation).
+    
+    Returns:
+        The processed response to return to the caller — either the original/non-streaming response (possibly augmented) or a StreamingResponse that yields filtered events and streaming chat completion updates.
+    """
     async def background_tasks_handler():
         message = None
         messages = []
@@ -1880,6 +1997,23 @@ async def process_chat_response(
 
         # Handle as a background task
         async def response_handler(response, events):
+            """
+            Handle a streaming model response and associated events, assembling content blocks, emitting realtime chat events, persisting interim and final assistant content, executing any tool calls or code interpreter blocks, and running post-response background tasks.
+            
+            Parameters:
+                response: The model response or streaming response object to consume and finalize; may expose a body_iterator and optional background() coroutine.
+                events: An iterable of initial event payloads to emit before streaming begins.
+            
+            Side effects:
+                - Emits incremental and final "chat:completion" events via the configured event emitter.
+                - Updates the chat message record with interim and final serialized content.
+                - Executes tool calls and code-interpreter blocks when present, integrating their results into the response stream.
+                - Sends a webhook notification if the user is inactive.
+                - Invokes any response.background coroutine if provided.
+            
+            Notes:
+                - This function performs no return value.
+            """
             def serialize_content_blocks(content_blocks, raw=False):
                 content = ""
 
@@ -2294,6 +2428,16 @@ async def process_chat_response(
                     )
 
                 async def stream_body_handler(response, form_data):
+                    """
+                    Stream and process Server-Sent Events from a model response, emitting interim chat events and updating the outer scope's content state.
+                    
+                    This handler consumes the response's body iterator for SSE-like "data:" lines, parses JSON payloads, applies stream filter functions, and emits chat:completion events with either incremental delta data (chunked according to stream_delta_chunk_size) or full updates. It updates nonlocal content and content_blocks with streamed text, reasoning, and code-interpreter blocks, saves interim content to persistent storage when realtime saving is enabled, accumulates tool call fragments into an outer tool_calls list, and finalizes content_blocks (timestamps and trimming) when the stream ends. If the response exposes a background callable, it will be invoked at the end.
+                    
+                    Parameters:
+                        response: An HTTP/stream response object providing `body_iterator`, optional `background` callable, and streaming payloads that include SSE-style "data:" lines.
+                        form_data: The chat form data associated with the current request; forwarded to filter functions as context.
+                    
+                    """
                     nonlocal content
                     nonlocal content_blocks
 
@@ -2310,6 +2454,17 @@ async def process_chat_response(
                     last_delta_data = None
 
                     async def flush_pending_delta_data(threshold: int = 0):
+                        """
+                        Emit pending delta data if the accumulated delta count meets or exceeds the threshold.
+                        
+                        Parameters:
+                            threshold (int): Minimum delta count required to trigger emitting the last pending delta data.
+                        
+                        Description:
+                            When the accumulated `delta_count` is greater than or equal to `threshold` and there is pending `last_delta_data`,
+                            this function sends a `chat:completion` event with that data via `event_emitter`, then resets `delta_count` to 0
+                            and clears `last_delta_data`.
+                        """
                         nonlocal delta_count
                         nonlocal last_delta_data
 

@@ -129,6 +129,23 @@ async def get_headers_and_cookies(
     metadata: Optional[dict] = None,
     user: UserModel = None,
 ):
+    """
+    Build request headers and cookies for downstream OpenAI-compatible endpoints using the incoming HTTP request, per-URL configuration, and optional user/metadata.
+    
+    Parameters:
+        request (Request): Incoming FastAPI request; used to populate cookies and to obtain session or OAuth tokens when the configured auth_type requires them.
+        url (str): Target backend URL; influences special-case headers for known providers.
+        key (Optional[str]): API key used as a bearer token when auth_type is "bearer" or when no auth_type is specified.
+        config (Optional[dict]): Per-URL configuration. Recognized keys:
+            - "auth_type": authentication mode ("bearer", "none", "session", "system_oauth", "azure_ad", "microsoft_entra_id").
+              Determines whether an Authorization header is added or cookies/session tokens are used.
+            - "headers": a dict of additional headers to merge into the resulting headers (overrides defaults on conflict).
+        metadata (Optional[dict]): Optional metadata; if it contains "chat_id" and user-forwarding is enabled, a chat ID header will be added.
+        user (Optional[UserModel]): Authenticated user object; when user-forwarding is enabled, selected user fields (id, name, email, role) are added as headers.
+    
+    Returns:
+        tuple: (headers, cookies) where `headers` is a dict of HTTP headers prepared for the downstream request (always includes "Content-Type" and may include "Authorization" and forwarded user/metadata headers), and `cookies` is a dict of cookies to send (populated from the incoming request when the chosen auth_type requires it).
+    """
     cookies = {}
     headers = {
         "Content-Type": "application/json",

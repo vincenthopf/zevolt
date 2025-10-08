@@ -47,6 +47,14 @@ router = APIRouter()
 
 @router.get("/", response_model=list[FolderNameIdResponse])
 async def get_folders(user=Depends(get_verified_user)):
+    """
+    Retrieve all folders accessible to the current user while ensuring folder integrity.
+    
+    Each returned folder has any invalid parent_id cleared and its data["files"] filtered to include only file or collection entries the user has read access to.
+    
+    Returns:
+        list[FolderNameIdResponse]: FolderNameIdResponse objects for the user's folders with corrected parent references and filtered file lists.
+    """
     folders = Folders.get_folders_by_user_id(user.id)
 
     # Verify folder data integrity
@@ -260,6 +268,23 @@ async def update_folder_is_expanded_by_id(
 async def delete_folder_by_id(
     request: Request, id: str, user=Depends(get_verified_user)
 ):
+    """
+    Delete a folder, its descendant folders, and any chats contained within those folders for the authenticated user.
+    
+    If any chats exist in the target folder, verifies the user's permission to delete chats before proceeding. The endpoint removes the folder subtree and deletes chats associated with each deleted folder.
+    
+    Parameters:
+        id (str): The identifier of the folder to delete.
+    
+    Returns:
+        bool: `True` if the folder (and its subtree) was deleted successfully.
+    
+    Raises:
+        HTTPException: 
+            - 403 Forbidden if the folder contains chats and the user lacks chat-delete permission.
+            - 404 Not Found if the folder does not exist for the user.
+            - 400 Bad Request if an error occurs while deleting the folder or associated resources.
+    """
     if Chats.count_chats_by_folder_id_and_user_id(id, user.id):
         chat_delete_permission = has_permission(
             user.id, "chat.delete", request.app.state.config.USER_PERMISSIONS

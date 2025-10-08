@@ -327,6 +327,17 @@ async def join_channel(sid, data):
 
 @sio.on("join-note")
 async def join_note(sid, data):
+    """
+    Authorize a user's session for a note and add that session to the note's Socket.IO room.
+    
+    Validates an authentication token in data["auth"]["token"], ensures the user and note exist, and checks that the user is an admin, the note owner, or has read access. If authorization succeeds, the session identified by `sid` is added to the room "note:<note_id>". Failures are logged and the function exits without joining a room.
+    
+    Parameters:
+        sid (str): The Socket.IO session identifier for the connection.
+        data (dict): Payload containing at least:
+            - "auth" (dict): Authentication object with a "token" key.
+            - "note_id" (str|int): Identifier of the note to join.
+    """
     auth = data["auth"] if "auth" in data else None
     if not auth or "token" not in auth:
         return
@@ -358,6 +369,16 @@ async def join_note(sid, data):
 
 @sio.on("events:channel")
 async def channel_events(sid, data):
+    """
+    Broadcast channel-level events (e.g., typing) to all participants in the channel if the sender is currently in that channel.
+    
+    Parameters:
+        sid (str): Socket session id of the sender.
+        data (dict): Payload containing:
+            - channel_id (str): Identifier of the channel to broadcast to.
+            - data (dict): Event payload; must include a `type` key (e.g., "typing").
+            - message_id (optional, str): Associated message identifier, if any.
+    """
     room = f"channel:{data['channel_id']}"
     participants = sio.manager.get_participants(
         namespace="/",
@@ -639,6 +660,19 @@ async def disconnect(sid):
 
 
 def get_event_emitter(request_info, update_db=True):
+    """
+    Create an async emitter for a user that broadcasts event data to the user's active sessions and optionally persists related chat message changes.
+    
+    Parameters:
+        request_info (dict): Context for emission containing at minimum "user_id". May also include:
+            - "session_id" (str): a specific session to include.
+            - "chat_id" (str): target chat identifier.
+            - "message_id" (str): target message identifier.
+        update_db (bool): If True, apply message persistence operations to Chats when applicable (default True).
+    
+    Returns:
+        function: A callable that accepts a single argument `event_data` (dict). When invoked, it emits `event_data` to the user's session sockets (under the "events" channel with keys "chat_id", "message_id", and "data") and, if enabled and applicable, updates the persistent chat message based on the event's `type` (examples: status, message append, replace, embeds, files, source/citation).
+    """
     async def __event_emitter__(event_data):
         user_id = request_info["user_id"]
 
@@ -768,6 +802,15 @@ def get_event_emitter(request_info, update_db=True):
 
 
 def get_event_call(request_info):
+    """
+    Create a caller that invokes the "events" channel for a specific target session.
+    
+    Parameters:
+        request_info (dict): Map containing at least "session_id" (the target socket session ID). May also include "chat_id" and "message_id" which will be included in the emitted payload.
+    
+    Returns:
+        A coroutine function that, when awaited with `event_data`, sends `{chat_id, message_id, data}` to the "events" channel for the session specified in `request_info` and returns the remote response.
+    """
     async def __event_caller__(event_data):
         response = await sio.call(
             "events",

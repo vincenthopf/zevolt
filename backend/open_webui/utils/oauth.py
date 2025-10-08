@@ -232,6 +232,21 @@ async def get_oauth_client_info_with_dynamic_client_registration(
     oauth_server_url: str,
     oauth_server_key: Optional[str] = None,
 ) -> OAuthClientInformationFull:
+    """
+    Discover or register an OAuth client on the given OAuth server and return its full client information.
+    
+    Parameters:
+        request: The incoming request (used to build the client's redirect URI based on app configuration).
+        client_id (str): The desired client identifier for the registration callback path.
+        oauth_server_url (str): The OAuth/OpenID provider base URL or discovery URL.
+        oauth_server_key (Optional[str]): Optional server key (reserved for future use; currently unused).
+    
+    Returns:
+        OAuthClientInformationFull: The registered or discovered client information, including issuer and server metadata.
+    
+    Raises:
+        Exception: If dynamic client registration or response parsing fails.
+    """
     try:
         oauth_server_metadata = None
         oauth_server_metadata_url = None
@@ -330,11 +345,27 @@ async def get_oauth_client_info_with_dynamic_client_registration(
 
 class OAuthClientManager:
     def __init__(self, app):
+        """
+        Initialize the OAuth client manager with application context and an empty client registry.
+        
+        Parameters:
+            app: The FastAPI/Starlette application instance used for configuration and dependency access.
+        """
         self.oauth = OAuth()
         self.app = app
         self.clients = {}
 
     def add_client(self, client_id, oauth_client_info: OAuthClientInformationFull):
+        """
+        Register the given OAuth client information with the local OAuth registry and store the resulting client under the provided client_id.
+        
+        Parameters:
+            client_id (str): Key under which the registered client and its info will be stored in self.clients.
+            oauth_client_info (OAuthClientInformationFull): OAuth client metadata used to register the client; if server metadata indicates support for the S256 code challenge method, it will be set on the registration kwargs.
+        
+        Returns:
+            dict: Mapping with keys "client" (the registered OAuth client) and "client_info" (the original OAuthClientInformationFull).
+        """
         kwargs = {
             "name": client_id,
             "client_id": oauth_client_info.client_id,
@@ -382,6 +413,15 @@ class OAuthClientManager:
         return client["client_info"] if client else None
 
     def get_server_metadata_url(self, client_id):
+        """
+        Retrieve the stored server metadata URL for a registered OAuth client.
+        
+        Parameters:
+            client_id (str): Identifier of the OAuth client.
+        
+        Returns:
+            str | None: The server metadata URL associated with the client if available, otherwise `None`.
+        """
         if client_id in self.clients:
             client = self.clients[client_id]
             return (
@@ -572,6 +612,18 @@ class OAuthClientManager:
         return await client.authorize_redirect(request, str(redirect_uri))
 
     async def handle_callback(self, request, client_id: str, user_id: str, response):
+        """
+        Handle the OAuth authorization callback for a specific client and user, persist the obtained token as a server-side session, and redirect to the web UI.
+        
+        If an existing session exists for the same user and client, it is deleted before storing the new session. On failure to obtain or store a token, the user is redirected to the web UI with an `error` query parameter describing the failure.
+        
+        Parameters:
+            user_id (str): Internal user identifier to associate the OAuth session with.
+            response: The original response object whose headers are preserved on redirect.
+        
+        Returns:
+            RedirectResponse: A redirect to the configured web UI (WEBUI_URL or request.base_url). If an error occurred, the redirect URL includes `?error=<message>`.
+        """
         client = self.get_client(client_id)
         if client is None:
             raise HTTPException(404)
@@ -639,6 +691,14 @@ class OAuthClientManager:
 
 class OAuthManager:
     def __init__(self, app):
+        """
+        Initialize the OAuthManager by creating an OAuth registry and registering configured providers.
+        
+        Creates an internal OAuth instance, stores the application reference, and populates the manager's client map by invoking each provider's `register` function from the OAUTH_PROVIDERS configuration. Providers missing a `register` function are skipped and logged.
+        
+        Parameters:
+            app: The application instance (e.g., FastAPI/Starlette app) used for context by provider registrations.
+        """
         self.oauth = OAuth()
         self.app = app
 
@@ -653,11 +713,29 @@ class OAuthManager:
             self._clients[name] = client
 
     def get_client(self, provider_name):
+        """
+        Return the OAuth client for a given provider, creating and caching it if not already present.
+        
+        Parameters:
+            provider_name (str): The configured provider's name/key.
+        
+        Returns:
+            The OAuth client instance associated with the specified provider.
+        """
         if provider_name not in self._clients:
             self._clients[provider_name] = self.oauth.create_client(provider_name)
         return self._clients[provider_name]
 
     def get_server_metadata_url(self, provider_name):
+        """
+        Retrieve the OpenID Connect server metadata URL associated with a registered provider.
+        
+        Parameters:
+            provider_name (str): The provider's name/key used when registering the client.
+        
+        Returns:
+            str: The server metadata URL if the provider is registered and exposes `_server_metadata_url`, `None` otherwise.
+        """
         if provider_name in self._clients:
             client = self._clients[provider_name]
             return (
@@ -1095,6 +1173,15 @@ class OAuthManager:
         return await client.authorize_redirect(request, redirect_uri)
 
     async def handle_callback(self, request, provider, response):
+        """
+        Handle an OAuth provider callback: exchange the authorization response for tokens, obtain and normalize user info, create or update the local user and groups as configured, create a JWT and server-side OAuth session, set authentication cookies, and redirect the client to the frontend authentication page.
+        
+        Parameters:
+            provider (str): The configured OAuth provider name (must be a key in OAUTH_PROVIDERS). The provider selects how claims are read and any provider-specific fallback or API calls (e.g., GitHub email fetch).
+        
+        Returns:
+            RedirectResponse: A redirect to the frontend /auth page. On success the response includes authentication cookies (`token`, `oauth_session_id`, and optionally `oauth_id_token`). On error the redirect URL contains an `error` query parameter describing the failure.
+        """
         if provider not in OAUTH_PROVIDERS:
             raise HTTPException(404)
 

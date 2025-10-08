@@ -201,7 +201,22 @@ async def verify_tool_servers_config(
     request: Request, form_data: ToolServerConnection, user=Depends(get_admin_user)
 ):
     """
-    Verify the connection to the tool server.
+    Verify connectivity and authentication for the given tool server configuration.
+    
+    Attempts appropriate discovery or authenticated requests based on the connection type and authentication method. For MCP servers using OAuth 2.1 this returns the parsed discovery metadata; for MCP servers using other auth methods this returns listed tool specs; for OpenAPI-style servers this returns the server data resolved from the provided URL/path.
+    
+    Parameters:
+        request (Request): FastAPI request object used to access application state, cookies, and session tokens.
+        form_data (ToolServerConnection): Tool server connection configuration to verify (url, path, type, auth_type, key, etc.).
+    
+    Returns:
+        dict: A dictionary with a "status" key set to True and one of:
+            - "oauth_server_metadata": JSON-serializable discovery metadata (for OAuth 2.1 MCP servers).
+            - "specs": list of tool specifications (for MCP servers using non-OAuth 2.1 auth).
+            - other tool server data as returned by the OpenAPI verification flow.
+    
+    Raises:
+        HTTPException: With status code 400 when verification fails (fetching/parsing discovery document, connecting to MCP, or retrieving OpenAPI data).
     """
     try:
         if form_data.type == "mcp":
